@@ -6,6 +6,7 @@ from instrumentation import compute_metrics
 import losses
 import os
 import torch.nn.functional as F
+from boost_diagnostics import BoostDiagnostics
 
 def run_train(P):
     dataset = datasets.get_data(P)
@@ -31,6 +32,7 @@ def run_train(P):
     ]
   
     optimizer = torch.optim.Adam(opt_params, lr=P['lr'])
+    boost_diagnostics = BoostDiagnostics(P['save_path'], P['num_classes']) if P.get('boost_diagnostics', False) else None
     
     # training loop
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -60,7 +62,11 @@ def run_train(P):
                     # Forward pass
                     optimizer.zero_grad()
 
-                    logits = model(image)
+                    if boost_diagnostics is not None:
+                        logits, diag = model(image, return_diagnostics=True)
+                    else:
+                        logits = model(image)
+                        diag = None
                    
                     if logits.dim() == 1:
                         logits = torch.unsqueeze(logits, 0)
@@ -68,6 +74,8 @@ def run_train(P):
                     
                     if phase == 'train':
                         loss, correction_idx = losses.compute_batch_loss(logits, label_vec_obs, P)
+                        if boost_diagnostics is not None:
+                            boost_diagnostics.update_batch(phase, batch, diag, correction_idx)
                         loss.backward()
                         optimizer.step()
 
@@ -75,6 +83,8 @@ def run_train(P):
                             dataset[phase].label_matrix_obs[idx[correction_idx[0].cpu()], correction_idx[1].cpu()] = 1.0
                 
                     else:
+                        if boost_diagnostics is not None:
+                            boost_diagnostics.update_batch(phase, batch, diag)
                         preds_np = preds.cpu().numpy()
                         this_batch_size = preds_np.shape[0]
                         y_pred[batch_stack : batch_stack+this_batch_size] = preds_np
@@ -87,6 +97,8 @@ def run_train(P):
         map_val = metrics['map']
                 
         print(f"Epoch {epoch} : val mAP {map_val:.3f}")
+        if boost_diagnostics is not None:
+            boost_diagnostics.finish_epoch(epoch)
 
         P['clean_rate'] -= P['delta_rel']
                 

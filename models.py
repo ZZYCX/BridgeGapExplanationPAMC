@@ -37,10 +37,18 @@ class ImageClassifier(torch.nn.Module):
         for param in self.feature_extractor.parameters():
             param.requires_grad = True
         
-    def forward(self, x):
+    def forward(self, x, return_diagnostics=False):
         feats = self.feature_extractor(x)
-        CAM = self.onebyone_conv(feats)
-        CAM = torch.where(CAM > 0, CAM * self.alpha, CAM) # BoostLU operation
-        logits = F.adaptive_avg_pool2d(CAM, 1).squeeze(-1).squeeze(-1)
+        cam_raw = self.onebyone_conv(feats)
+        cam_boosted = torch.where(cam_raw > 0, cam_raw * self.alpha, cam_raw) # BoostLU operation
+        logits = F.adaptive_avg_pool2d(cam_boosted, 1).squeeze(-1).squeeze(-1)
+        if return_diagnostics:
+            diagnostics = {
+                'cam_raw': cam_raw,
+                'cam_boosted': cam_boosted,
+                'logits_raw': F.adaptive_avg_pool2d(cam_raw, 1).squeeze(-1).squeeze(-1),
+                'logits_boost': logits,
+            }
+            return logits, diagnostics
         return logits
 

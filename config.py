@@ -78,6 +78,8 @@ def get_configs():
     parser.add_argument('--bsize', type=int, default=16)
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--alpha', type=float, default=5)
+    parser.add_argument('--boost_diagnostics', action='store_true',
+                        help='write detached CAM boosting diagnostics without changing training')
     
 
     args = parser.parse_args()
