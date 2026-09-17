@@ -5,11 +5,12 @@ import models
 from instrumentation import compute_metrics
 import losses
 import os
-import torch.nn.functional as F
-from boost_diagnostics import BoostDiagnostics
 
 def run_train(P):
     dataset = datasets.get_data(P)
+    if np.min(dataset['train'].label_matrix_obs) < 0:
+        raise ValueError('Observed training labels must be non-negative.')
+
     dataloader = {}
     for phase in ['train', 'val', 'test']:
         dataloader[phase] = torch.utils.data.DataLoader(
@@ -32,8 +33,6 @@ def run_train(P):
     ]
   
     optimizer = torch.optim.Adam(opt_params, lr=P['lr'])
-    boost_diagnostics = BoostDiagnostics(P['save_path'], P['num_classes']) if P.get('boost_diagnostics', False) else None
-    
     # training loop
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
@@ -46,60 +45,46 @@ def run_train(P):
                 model.train()
             else:
                 model.eval()
-                y_pred = np.zeros((len(dataset[phase]), P['num_classes']))
                 y_true = np.zeros((len(dataset[phase]), P['num_classes']))
+                pred_batches = []
                 batch_stack = 0
 
-            
-            with torch.set_grad_enabled(phase == 'train'):
+            grad_context = torch.enable_grad() if phase == 'train' else torch.inference_mode()
+            with grad_context:
                 for batch in dataloader[phase]:
-                    # Move data to GPU
                     image = batch['image'].to(device, non_blocking=True)
-                    label_vec_obs = batch['label_vec_obs'].to(device, non_blocking=True)
-                    label_vec_true = batch['label_vec_true'].clone().numpy()
-                    idx = batch['idx']
 
-                    # Forward pass
-                    optimizer.zero_grad()
+                    if phase == 'train':
+                        label_vec_obs = batch['label_vec_obs'].to(device, non_blocking=True)
+                        optimizer.zero_grad(set_to_none=True)
 
-                    if boost_diagnostics is not None:
-                        logits, diag = model(image, return_diagnostics=True)
-                    else:
-                        logits = model(image)
-                        diag = None
-                   
+                    logits = model(image)
                     if logits.dim() == 1:
                         logits = torch.unsqueeze(logits, 0)
-                    preds = torch.sigmoid(logits)
-                    
+
                     if phase == 'train':
                         loss, correction_idx = losses.compute_batch_loss(logits, label_vec_obs, P)
-                        if boost_diagnostics is not None:
-                            boost_diagnostics.update_batch(phase, batch, diag, correction_idx)
                         loss.backward()
                         optimizer.step()
 
                         if P['largelossmod_scheme'] == 'LL-Cp' and correction_idx[1].numel():
+                            idx = batch['idx']
                             dataset[phase].label_matrix_obs[idx[correction_idx[0].cpu()], correction_idx[1].cpu()] = 1.0
-                
                     else:
-                        if boost_diagnostics is not None:
-                            boost_diagnostics.update_batch(phase, batch, diag)
-                        preds_np = preds.cpu().numpy()
-                        this_batch_size = preds_np.shape[0]
-                        y_pred[batch_stack : batch_stack+this_batch_size] = preds_np
+                        pred_batches.append(torch.sigmoid(logits))
+                        label_vec_true = batch['label_vec_true'].numpy()
+                        this_batch_size = label_vec_true.shape[0]
                         y_true[batch_stack : batch_stack+this_batch_size] = label_vec_true
                         batch_stack += this_batch_size
 
-        metrics = compute_metrics(y_pred, y_true)
+                if phase == 'val':
+                    y_pred = torch.cat(pred_batches, dim=0).cpu().numpy()
+                    metrics = compute_metrics(y_pred, y_true)
         del y_pred
         del y_true
         map_val = metrics['map']
                 
         print(f"Epoch {epoch} : val mAP {map_val:.3f}")
-        if boost_diagnostics is not None:
-            boost_diagnostics.finish_epoch(epoch)
-
         P['clean_rate'] -= P['delta_rel']
                 
         if bestmap_val < map_val:
@@ -117,32 +102,24 @@ def run_train(P):
 
     phase = 'test'
     model.eval()
-    y_pred = np.zeros((len(dataset[phase]), P['num_classes']))
     y_true = np.zeros((len(dataset[phase]), P['num_classes']))
+    pred_batches = []
     batch_stack = 0
-    with torch.set_grad_enabled(phase == 'train'):
+    with torch.inference_mode():
         for batch in dataloader[phase]:
-            # Move data to GPU
             image = batch['image'].to(device, non_blocking=True)
-            label_vec_obs = batch['label_vec_obs'].to(device, non_blocking=True)
-            label_vec_true = batch['label_vec_true'].clone().numpy()
-            idx = batch['idx']
-
-            # Forward pass
-            optimizer.zero_grad()
+            label_vec_true = batch['label_vec_true'].numpy()
 
             logits = model(image)
-            
             if logits.dim() == 1:
                 logits = torch.unsqueeze(logits, 0)
-            preds = torch.sigmoid(logits)
-               
-            preds_np = preds.cpu().numpy()
-            this_batch_size = preds_np.shape[0]
-            y_pred[batch_stack : batch_stack+this_batch_size] = preds_np
+            pred_batches.append(torch.sigmoid(logits))
+
+            this_batch_size = label_vec_true.shape[0]
             y_true[batch_stack : batch_stack+this_batch_size] = label_vec_true
             batch_stack += this_batch_size
 
+        y_pred = torch.cat(pred_batches, dim=0).cpu().numpy()
     metrics = compute_metrics(y_pred, y_true)
     map_test = metrics['map']
     ap_test = metrics['ap']

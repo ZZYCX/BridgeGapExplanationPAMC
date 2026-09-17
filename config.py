@@ -5,6 +5,7 @@ from munch import Munch as mch
 from os.path import join as ospj
 from datetime import datetime
 
+#项目运行指令：python main.py --dataset coco --largelossmod_scheme LL-R
 _DATASET = ('pascal', 'coco', 'nuswide', 'cub', 'openimages')
 _SCHEMES = ('LL-R', 'LL-Ct', 'LL-Cp')
 _LOOKUP = {
@@ -78,10 +79,6 @@ def get_configs():
     parser.add_argument('--bsize', type=int, default=16)
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--alpha', type=float, default=5)
-    parser.add_argument('--boost_diagnostics', action='store_true',
-                        help='write detached CAM boosting diagnostics without changing training')
-    
-
     args = parser.parse_args()
     args = set_default_configs(args)
     args = set_follow_up_configs(args)

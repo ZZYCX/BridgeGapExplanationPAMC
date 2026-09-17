@@ -1,6 +1,4 @@
-from typing_extensions import final
 import torch
-from torch._C import ThroughputBenchmark
 import torch.nn.functional as F
 import math 
 
@@ -10,12 +8,16 @@ import math
 loss functions
 '''
 
-def loss_an(logits, observed_labels):
-
-    assert torch.min(observed_labels) >= 0
-    # compute loss:
+def loss_an(logits, observed_labels, compute_corrected=False):
     loss_matrix = F.binary_cross_entropy_with_logits(logits, observed_labels, reduction='none')
-    corrected_loss_matrix = F.binary_cross_entropy_with_logits(logits, torch.logical_not(observed_labels).float(), reduction='none')
+    corrected_loss_matrix = None
+    if compute_corrected:
+        corrected_labels = torch.logical_not(observed_labels).float()
+        corrected_loss_matrix = F.binary_cross_entropy_with_logits(
+            logits,
+            corrected_labels,
+            reduction='none',
+        )
     return loss_matrix, corrected_loss_matrix
 
 
@@ -36,8 +38,16 @@ def compute_batch_loss(logits, label_vec, P):
     else:
         unobserved_mask = (label_vec == 0)
     
-    # compute loss for each image and class:
-    loss_matrix, corrected_loss_matrix = loss_an(logits, label_vec.clip(0))
+    # LL-Ct/LL-Cp need the corrected-label BCE only after rejection starts.
+    compute_corrected = (
+        P['clean_rate'] != 1
+        and P['largelossmod_scheme'] in ['LL-Ct', 'LL-Cp']
+    )
+    loss_matrix, corrected_loss_matrix = loss_an(
+        logits,
+        label_vec.clip(0),
+        compute_corrected=compute_corrected,
+    )
 
     correction_idx = [torch.Tensor([]), torch.Tensor([])]
 
@@ -52,14 +62,15 @@ def compute_batch_loss(logits, label_vec, P):
         unobserved_loss = unobserved_mask.bool() * loss_matrix
         topk = torch.topk(unobserved_loss.flatten(), k)
         topk_lossvalue = topk.values[-1]
-        correction_idx = torch.where(unobserved_loss >= topk_lossvalue)
+        rejection_mask = unobserved_loss >= topk_lossvalue
+        correction_idx = torch.where(rejection_mask)
 
 
         if P['largelossmod_scheme'] in ['LL-Ct', 'LL-Cp']:
-            final_loss_matrix = torch.where(unobserved_loss >= topk_lossvalue, corrected_loss_matrix, loss_matrix)
+            final_loss_matrix = torch.where(rejection_mask, corrected_loss_matrix, loss_matrix)
         else:
             zero_loss_matrix = torch.zeros_like(loss_matrix)
-            final_loss_matrix = torch.where(unobserved_loss >= topk_lossvalue, zero_loss_matrix, loss_matrix)
+            final_loss_matrix = torch.where(rejection_mask, zero_loss_matrix, loss_matrix)
                 
     main_loss = final_loss_matrix.mean()
     
