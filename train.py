@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import datasets
 import models
-from instrumentation import compute_metrics
+from instrumentation import AdaptiveBoostDiagnosticsAccumulator, compute_metrics
 import losses
 import os
 
@@ -38,8 +38,11 @@ def run_train(P):
     model.to(device)
 
     bestmap_val = 0
+    diagnostics_path = os.path.join(P['save_path'], 'adaptive_boost_diagnostics.csv')
 
     for epoch in range(1, P['num_epochs']+1):
+        clean_rate_used = P['clean_rate']
+        diagnostics = AdaptiveBoostDiagnosticsAccumulator()
         for phase in ['train', 'val']:
             if phase == 'train':
                 model.train()
@@ -58,12 +61,25 @@ def run_train(P):
                         label_vec_obs = batch['label_vec_obs'].to(device, non_blocking=True)
                         optimizer.zero_grad(set_to_none=True)
 
-                    logits = model(image)
+                    if phase == 'train':
+                        logits, boost_diag = model(
+                            image, return_boost_diagnostics=True
+                        )
+                    else:
+                        logits = model(image)
                     if logits.dim() == 1:
                         logits = torch.unsqueeze(logits, 0)
 
                     if phase == 'train':
-                        loss, correction_idx = losses.compute_batch_loss(logits, label_vec_obs, P)
+                        loss, correction_idx, loss_diag = losses.compute_batch_loss(
+                            logits, label_vec_obs, P, return_diagnostics=True
+                        )
+                        label_vec_true = batch['label_vec_true'].to(
+                            device, non_blocking=True
+                        )
+                        diagnostics.update(
+                            label_vec_obs, label_vec_true, boost_diag, loss_diag
+                        )
                         loss.backward()
                         optimizer.step()
 
@@ -80,6 +96,14 @@ def run_train(P):
                 if phase == 'val':
                     y_pred = torch.cat(pred_batches, dim=0).cpu().numpy()
                     metrics = compute_metrics(y_pred, y_true)
+                elif phase == 'train':
+                    diagnostics_summary = diagnostics.summarize(
+                        epoch, clean_rate_used
+                    )
+                    diagnostics.append_csv(
+                        diagnostics_path, diagnostics_summary
+                    )
+                    diagnostics.print_summary(diagnostics_summary)
         del y_pred
         del y_true
         map_val = metrics['map']

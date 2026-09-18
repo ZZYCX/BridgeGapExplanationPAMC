@@ -1,6 +1,146 @@
 import numpy as np
 import copy
+import csv
+import math
+import os
+import torch
 import metrics
+
+
+class AdaptiveBoostDiagnosticsAccumulator:
+    CSV_FIELDS = [
+        'epoch', 'clean_rate_used', 'FN_total', 'TN_total', 'rejected_FN',
+        'rejected_TN', 'rejected_total', 'FN_rejection_rate',
+        'TN_rejection_rate', 'reject_precision', 'mean_raw_loss_FN',
+        'mean_raw_loss_TN', 'loss_gap', 'mean_delta_g_FN', 'mean_delta_g_TN',
+        'mean_delta_g_ObsPos', 'boost_selectivity_ratio', 'mean_alpha_eff_FN',
+        'mean_alpha_eff_TN', 'mean_alpha_eff_ObsPos', 'alpha_eff_gap',
+        'mean_positive_cam_mass_FN', 'mean_positive_cam_mass_TN',
+        'mean_positive_cam_mass_ObsPos', 'mean_dominant_ratio_FN',
+        'mean_dominant_ratio_TN', 'mean_dominant_ratio_ObsPos',
+    ]
+
+    def __init__(self):
+        self.counts = {
+            'FN_total': 0, 'TN_total': 0, 'rejected_FN': 0,
+            'rejected_TN': 0, 'rejected_total': 0,
+        }
+        self.stats = {}
+
+    def _accumulate(self, name, values, mask):
+        selected = values.detach()[mask]
+        if selected.numel() == 0:
+            return
+        total, count = self.stats.get(name, (0.0, 0))
+        self.stats[name] = (total + selected.double().sum().item(),
+                            count + selected.numel())
+
+    def update(self, label_vec_obs, label_vec_true, boost_diag, loss_diag):
+        with torch.no_grad():
+            observed = label_vec_obs.detach()
+            clean = label_vec_true.detach()
+            hidden_fn = (observed == 0) & (clean == 1)
+            true_negative = (observed == 0) & (clean != 1)
+            observed_positive = (observed == 1) & (clean == 1)
+            rejected = loss_diag['rejection_mask'].detach().bool()
+
+            self.counts['FN_total'] += hidden_fn.sum().item()
+            self.counts['TN_total'] += true_negative.sum().item()
+            self.counts['rejected_FN'] += (rejected & hidden_fn).sum().item()
+            self.counts['rejected_TN'] += (rejected & true_negative).sum().item()
+            self.counts['rejected_total'] += rejected.sum().item()
+
+            masks = {
+                'FN': hidden_fn,
+                'TN': true_negative,
+                'ObsPos': observed_positive,
+            }
+            for suffix, mask in masks.items():
+                self._accumulate('delta_g_' + suffix, boost_diag['delta_g'], mask)
+                self._accumulate(
+                    'alpha_eff_' + suffix,
+                    boost_diag['alpha_eff'],
+                    mask & boost_diag['alpha_eff_valid'],
+                )
+                self._accumulate(
+                    'positive_cam_mass_' + suffix,
+                    boost_diag['positive_cam_mass'],
+                    mask,
+                )
+                self._accumulate(
+                    'dominant_ratio_' + suffix,
+                    boost_diag['dominant_ratio'],
+                    mask & boost_diag['dominant_ratio_valid'],
+                )
+
+            self._accumulate('raw_loss_FN', loss_diag['raw_loss_matrix'], hidden_fn)
+            self._accumulate('raw_loss_TN', loss_diag['raw_loss_matrix'], true_negative)
+
+    def _mean(self, name):
+        total, count = self.stats.get(name, (0.0, 0))
+        return total / count if count else float('nan')
+
+    @staticmethod
+    def _ratio(numerator, denominator, empty_value=0.0):
+        return numerator / denominator if denominator else empty_value
+
+    def summarize(self, epoch, clean_rate_used):
+        result = dict(self.counts)
+        result['epoch'] = epoch
+        result['clean_rate_used'] = clean_rate_used
+        result['FN_rejection_rate'] = self._ratio(
+            result['rejected_FN'], result['FN_total'])
+        result['TN_rejection_rate'] = self._ratio(
+            result['rejected_TN'], result['TN_total'])
+        rejected_known = result['rejected_FN'] + result['rejected_TN']
+        result['reject_precision'] = self._ratio(
+            result['rejected_FN'], rejected_known, float('nan'))
+
+        for stat_name in [
+            'raw_loss_FN', 'raw_loss_TN', 'delta_g_FN', 'delta_g_TN',
+            'delta_g_ObsPos', 'alpha_eff_FN', 'alpha_eff_TN',
+            'alpha_eff_ObsPos', 'positive_cam_mass_FN',
+            'positive_cam_mass_TN', 'positive_cam_mass_ObsPos',
+            'dominant_ratio_FN', 'dominant_ratio_TN',
+            'dominant_ratio_ObsPos',
+        ]:
+            result['mean_' + stat_name] = self._mean(stat_name)
+
+        result['loss_gap'] = (
+            result['mean_raw_loss_FN'] - result['mean_raw_loss_TN'])
+        result['boost_selectivity_ratio'] = (
+            result['mean_delta_g_FN'] / (result['mean_delta_g_TN'] + 1e-6))
+        result['alpha_eff_gap'] = (
+            result['mean_alpha_eff_FN'] - result['mean_alpha_eff_TN'])
+        return result
+
+    @classmethod
+    def append_csv(cls, path, summary):
+        write_header = not os.path.exists(path) or os.path.getsize(path) == 0
+        with open(path, 'a', newline='', encoding='utf-8') as handle:
+            writer = csv.DictWriter(handle, fieldnames=cls.CSV_FIELDS)
+            if write_header:
+                writer.writeheader()
+            writer.writerow({key: summary[key] for key in cls.CSV_FIELDS})
+
+    @staticmethod
+    def print_summary(summary):
+        precision = summary['reject_precision']
+        precision_text = 'N/A' if math.isnan(precision) else f'{precision:.4f}'
+        print(f"[AdaptiveBoost][Epoch {summary['epoch']}]")
+        print(f"FN reject:  {summary['rejected_FN']} / {summary['FN_total']} = "
+              f"{summary['FN_rejection_rate']:.4f}")
+        print(f"TN reject:  {summary['rejected_TN']} / {summary['TN_total']} = "
+              f"{summary['TN_rejection_rate']:.4f}")
+        print(f'Reject precision: {precision_text}')
+        print(f"Boost delta FN/TN: {summary['mean_delta_g_FN']:.4f} / "
+              f"{summary['mean_delta_g_TN']:.4f}")
+        print(f"Boost selectivity: {summary['boost_selectivity_ratio']:.4f}")
+        print(f"Alpha_eff FN/TN: {summary['mean_alpha_eff_FN']:.4f} / "
+              f"{summary['mean_alpha_eff_TN']:.4f}")
+        print(f"Raw loss FN/TN: {summary['mean_raw_loss_FN']:.4f} / "
+              f"{summary['mean_raw_loss_TN']:.4f}")
+
 
 class train_logger:
     

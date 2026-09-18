@@ -48,6 +48,7 @@ def set_default_configs(args):
     args.num_workers = 4
     args.lr_mult = 10
     args.save_path = './results'
+    args.adaptive_detach_gate = True
 
     return args
 
@@ -79,6 +80,11 @@ def get_configs():
     parser.add_argument('--bsize', type=int, default=16)
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--alpha', type=float, default=5)
+    parser.add_argument('--boostlu_mode', type=str, default='fixed',
+                        choices=('fixed', 'adaptive'))
+    parser.add_argument('--adaptive_tau', type=float, default=0.9)
+    parser.add_argument('--adaptive_temp', type=float, default=0.1)
+    parser.add_argument('--adaptive_topk_ratio', type=float, default=0.20)
     args = parser.parse_args()
     args = set_default_configs(args)
     args = set_follow_up_configs(args)

@@ -25,7 +25,7 @@ def loss_an(logits, observed_labels, compute_corrected=False):
 top-level wrapper
 '''
 
-def compute_batch_loss(logits, label_vec, P): 
+def compute_batch_loss(logits, label_vec, P, return_diagnostics=False):
      
     assert logits.dim() == 2
     
@@ -50,6 +50,7 @@ def compute_batch_loss(logits, label_vec, P):
     )
 
     correction_idx = [torch.Tensor([]), torch.Tensor([])]
+    rejection_mask = torch.zeros_like(unobserved_mask, dtype=torch.bool)
 
     if P['clean_rate'] == 1: # if epoch is 1, do not modify losses
         final_loss_matrix = loss_matrix
@@ -73,5 +74,13 @@ def compute_batch_loss(logits, label_vec, P):
             final_loss_matrix = torch.where(rejection_mask, zero_loss_matrix, loss_matrix)
                 
     main_loss = final_loss_matrix.mean()
-    
+
+    if return_diagnostics:
+        loss_diagnostics = {
+            'raw_loss_matrix': loss_matrix.detach(),
+            'unobserved_mask': unobserved_mask.detach().bool(),
+            'rejection_mask': rejection_mask.detach(),
+        }
+        return main_loss, correction_idx, loss_diagnostics
+
     return main_loss, correction_idx
