@@ -1,0 +1,150 @@
+[2026-09-18 18:07:55] Training log file: ./results/20260918_180755/training_log.txt
+[2026-09-18 18:07:55] Munch({'dataset': 'coco', 'largelossmod_scheme': 'LL-R', 'num_epochs': 10, 'gpu_num': '0', 'bsize': 16, 'lr': 1e-05, 'alpha': 5.0, 'boostlu_mode': 'adaptive', 'adaptive_tau': 0.9, 'adaptive_temp': 0.1, 'adaptive_topk_ratio': 0.1, 'ss_seed': 999, 'ss_frac_train': 1.0, 'ss_frac_val': 1.0, 'use_feats': False, 'val_frac': 0.2, 'split_seed': 1200, 'train_set_variant': 'observed', 'val_set_variant': 'clean', 'arch': 'resnet50', 'freeze_feature_extractor': False, 'use_pretrained': True, 'num_workers': 4, 'lr_mult': 10, 'save_path': './results/20260918_180755', 'adaptive_detach_gate': True, 'feat_dim': 2048, 'num_classes': 80, 'delta_rel': 0.005, 'experiment_name': '20260918_180755', 'clean_rate': 1}) 
+[2026-09-18 18:07:55] 
+[2026-09-18 18:07:55] ###### Train start ######
+[2026-09-18 18:07:55] Using single positive labels for training.
+[2026-09-18 18:07:55] Using clean labels for validation.
+[2026-09-18 18:07:55] /home/sx639/anaconda3/envs/Pi3X/lib/python3.10/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+[2026-09-18 18:07:55]   warnings.warn(
+[2026-09-18 18:07:55] /home/sx639/anaconda3/envs/Pi3X/lib/python3.10/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=ResNet50_Weights.IMAGENET1K_V1`. You can also use `weights=ResNet50_Weights.DEFAULT` to get the most up-to-date weights.
+[2026-09-18 18:07:55]   warnings.warn(msg)
+[2026-09-18 18:13:44] [AdaptiveBoost][Epoch 1]
+[2026-09-18 18:13:44] FN reject:  0 / 127413 = 0.0000
+[2026-09-18 18:13:44] TN reject:  0 / 5060122 = 0.0000
+[2026-09-18 18:13:44] Reject precision: N/A
+[2026-09-18 18:13:44] Boost delta FN/TN: 0.2775 / 0.0078
+[2026-09-18 18:13:44] Boost selectivity: 35.6422
+[2026-09-18 18:13:44] Alpha_eff FN/TN: 4.0072 / 4.7276
+[2026-09-18 18:13:44] Rejected/normal CAM diagnostics (rejected FN=0, rejected TN=0, normal TN=5060122):
+[2026-09-18 18:13:44]   Delta_g rejected-FN/rejected-TN/normal-TN: nan / nan / 0.0078
+[2026-09-18 18:13:44]   Alpha_eff rejected-FN/rejected-TN/normal-TN: nan / nan / 4.7276
+[2026-09-18 18:13:44]   Dominant ratio rejected-FN/rejected-TN/normal-TN: nan / nan / 0.7980
+[2026-09-18 18:13:44] Raw loss FN/TN: 0.1670 / 0.0108
+[2026-09-18 18:14:23] Epoch 1 : val mAP 63.817
+[2026-09-18 18:14:23] Saving model weight for best val mAP 63.817
+[2026-09-18 18:20:15] [AdaptiveBoost][Epoch 2]
+[2026-09-18 18:20:15] FN reject:  26618 / 127413 = 0.2089
+[2026-09-18 18:20:15] TN reject:  2111 / 5060122 = 0.0004
+[2026-09-18 18:20:15] Reject precision: 0.9265
+[2026-09-18 18:20:15] Boost delta FN/TN: 1.0766 / 0.0271
+[2026-09-18 18:20:15] Boost selectivity: 39.7319
+[2026-09-18 18:20:15] Alpha_eff FN/TN: 3.8634 / 4.7938
+[2026-09-18 18:20:15] Rejected/normal CAM diagnostics (rejected FN=26618, rejected TN=2111, normal TN=5058011):
+[2026-09-18 18:20:15]   Delta_g rejected-FN/rejected-TN/normal-TN: 2.9094 / 2.2213 / 0.0262
+[2026-09-18 18:20:15]   Alpha_eff rejected-FN/rejected-TN/normal-TN: 2.8722 / 3.1630 / 4.7993
+[2026-09-18 18:20:15]   Dominant ratio rejected-FN/rejected-TN/normal-TN: 0.1699 / 0.2204 / 0.8181
+[2026-09-18 18:20:15] Raw loss FN/TN: 0.6634 / 0.0054
+[2026-09-18 18:20:55] Epoch 2 : val mAP 69.306
+[2026-09-18 18:20:55] Saving model weight for best val mAP 69.306
+[2026-09-18 18:26:49] [AdaptiveBoost][Epoch 3]
+[2026-09-18 18:26:49] FN reject:  46375 / 127413 = 0.3640
+[2026-09-18 18:26:49] TN reject:  6978 / 5060122 = 0.0014
+[2026-09-18 18:26:49] Reject precision: 0.8692
+[2026-09-18 18:26:49] Boost delta FN/TN: 1.9047 / 0.0447
+[2026-09-18 18:26:49] Boost selectivity: 42.6244
+[2026-09-18 18:26:49] Alpha_eff FN/TN: 3.7598 / 4.7969
+[2026-09-18 18:26:49] Rejected/normal CAM diagnostics (rejected FN=46375, rejected TN=6978, normal TN=5053144):
+[2026-09-18 18:26:49]   Delta_g rejected-FN/rejected-TN/normal-TN: 3.9879 / 2.4077 / 0.0414
+[2026-09-18 18:26:49]   Alpha_eff rejected-FN/rejected-TN/normal-TN: 3.0097 / 3.3173 / 4.8091
+[2026-09-18 18:26:49]   Dominant ratio rejected-FN/rejected-TN/normal-TN: 0.1869 / 0.2419 / 0.8199
+[2026-09-18 18:26:49] Raw loss FN/TN: 1.4352 / 0.0055
+[2026-09-18 18:27:41] Epoch 3 : val mAP 72.174
+[2026-09-18 18:27:41] Saving model weight for best val mAP 72.174
+[2026-09-18 18:33:36] [AdaptiveBoost][Epoch 4]
+[2026-09-18 18:33:36] FN reject:  63973 / 127413 = 0.5021
+[2026-09-18 18:33:36] TN reject:  18109 / 5060122 = 0.0036
+[2026-09-18 18:33:36] Reject precision: 0.7794
+[2026-09-18 18:33:36] Boost delta FN/TN: 2.7804 / 0.0678
+[2026-09-18 18:33:36] Boost selectivity: 41.0086
+[2026-09-18 18:33:36] Alpha_eff FN/TN: 3.6532 / 4.7864
+[2026-09-18 18:33:36] Rejected/normal CAM diagnostics (rejected FN=63973, rejected TN=18109, normal TN=5042013):
+[2026-09-18 18:33:36]   Delta_g rejected-FN/rejected-TN/normal-TN: 4.7456 / 2.5537 / 0.0589
+[2026-09-18 18:33:36]   Alpha_eff rejected-FN/rejected-TN/normal-TN: 3.0871 / 3.4136 / 4.8098
+[2026-09-18 18:33:36]   Dominant ratio rejected-FN/rejected-TN/normal-TN: 0.1960 / 0.2574 / 0.8175
+[2026-09-18 18:33:36] Raw loss FN/TN: 2.3262 / 0.0073
+[2026-09-18 18:34:28] Epoch 4 : val mAP 73.259
+[2026-09-18 18:34:28] Saving model weight for best val mAP 73.259
+[2026-09-18 18:40:23] [AdaptiveBoost][Epoch 5]
+[2026-09-18 18:40:23] FN reject:  74695 / 127413 = 0.5862
+[2026-09-18 18:40:23] TN reject:  32011 / 5060122 = 0.0063
+[2026-09-18 18:40:23] Reject precision: 0.7000
+[2026-09-18 18:40:23] Boost delta FN/TN: 3.5361 / 0.0930
+[2026-09-18 18:40:23] Boost selectivity: 38.0121
+[2026-09-18 18:40:23] Alpha_eff FN/TN: 3.5908 / 4.7806
+[2026-09-18 18:40:23] Rejected/normal CAM diagnostics (rejected FN=74695, rejected TN=32011, normal TN=5028111):
+[2026-09-18 18:40:23]   Delta_g rejected-FN/rejected-TN/normal-TN: 5.3999 / 2.8259 / 0.0756
+[2026-09-18 18:40:23]   Alpha_eff rejected-FN/rejected-TN/normal-TN: 3.1209 / 3.4775 / 4.8138
+[2026-09-18 18:40:23]   Dominant ratio rejected-FN/rejected-TN/normal-TN: 0.1982 / 0.2657 / 0.8171
+[2026-09-18 18:40:23] Raw loss FN/TN: 3.0899 / 0.0102
+[2026-09-18 18:41:15] Epoch 5 : val mAP 73.559
+[2026-09-18 18:41:15] Saving model weight for best val mAP 73.559
+[2026-09-18 18:47:10] [AdaptiveBoost][Epoch 6]
+[2026-09-18 18:47:10] FN reject:  83418 / 127413 = 0.6547
+[2026-09-18 18:47:10] TN reject:  52017 / 5060122 = 0.0103
+[2026-09-18 18:47:10] Reject precision: 0.6159
+[2026-09-18 18:47:10] Boost delta FN/TN: 4.3141 / 0.1252
+[2026-09-18 18:47:10] Boost selectivity: 34.4461
+[2026-09-18 18:47:10] Alpha_eff FN/TN: 3.5311 / 4.7710
+[2026-09-18 18:47:10] Rejected/normal CAM diagnostics (rejected FN=83418, rejected TN=52017, normal TN=5008105):
+[2026-09-18 18:47:10]   Delta_g rejected-FN/rejected-TN/normal-TN: 6.0800 / 3.1158 / 0.0942
+[2026-09-18 18:47:10]   Alpha_eff rejected-FN/rejected-TN/normal-TN: 3.1388 / 3.5135 / 4.8157
+[2026-09-18 18:47:10]   Dominant ratio rejected-FN/rejected-TN/normal-TN: 0.1975 / 0.2692 / 0.8158
+[2026-09-18 18:47:10] Raw loss FN/TN: 3.9151 / 0.0153
+[2026-09-18 18:48:02] Epoch 6 : val mAP 73.713
+[2026-09-18 18:48:02] Saving model weight for best val mAP 73.713
+[2026-09-18 18:53:57] [AdaptiveBoost][Epoch 7]
+[2026-09-18 18:53:57] FN reject:  88966 / 127413 = 0.6982
+[2026-09-18 18:53:57] TN reject:  71093 / 5060122 = 0.0140
+[2026-09-18 18:53:57] Reject precision: 0.5558
+[2026-09-18 18:53:57] Boost delta FN/TN: 5.0281 / 0.1603
+[2026-09-18 18:53:57] Boost selectivity: 31.3726
+[2026-09-18 18:53:57] Alpha_eff FN/TN: 3.4947 / 4.7639
+[2026-09-18 18:53:57] Rejected/normal CAM diagnostics (rejected FN=88966, rejected TN=71093, normal TN=4989029):
+[2026-09-18 18:53:57]   Delta_g rejected-FN/rejected-TN/normal-TN: 6.7528 / 3.4586 / 0.1133
+[2026-09-18 18:53:57]   Alpha_eff rejected-FN/rejected-TN/normal-TN: 3.1462 / 3.5507 / 4.8157
+[2026-09-18 18:53:57]   Dominant ratio rejected-FN/rejected-TN/normal-TN: 0.1961 / 0.2727 / 0.8130
+[2026-09-18 18:53:57] Raw loss FN/TN: 4.6861 / 0.0218
+[2026-09-18 18:54:49] Epoch 7 : val mAP 72.907
+[2026-09-18 19:00:44] [AdaptiveBoost][Epoch 8]
+[2026-09-18 19:00:44] FN reject:  92925 / 127413 = 0.7293
+[2026-09-18 19:00:44] TN reject:  91758 / 5060122 = 0.0181
+[2026-09-18 19:00:44] Reject precision: 0.5032
+[2026-09-18 19:00:44] Boost delta FN/TN: 5.7247 / 0.2002
+[2026-09-18 19:00:44] Boost selectivity: 28.5927
+[2026-09-18 19:00:44] Alpha_eff FN/TN: 3.4624 / 4.7535
+[2026-09-18 19:00:44] Rejected/normal CAM diagnostics (rejected FN=92925, rejected TN=91758, normal TN=4968364):
+[2026-09-18 19:00:44]   Delta_g rejected-FN/rejected-TN/normal-TN: 7.4376 / 3.7709 / 0.1343
+[2026-09-18 19:00:44]   Alpha_eff rejected-FN/rejected-TN/normal-TN: 3.1473 / 3.5641 / 4.8129
+[2026-09-18 19:00:44]   Dominant ratio rejected-FN/rejected-TN/normal-TN: 0.1935 / 0.2722 / 0.8090
+[2026-09-18 19:00:44] Raw loss FN/TN: 5.4526 / 0.0297
+[2026-09-18 19:01:36] Epoch 8 : val mAP 72.705
+[2026-09-18 19:07:30] [AdaptiveBoost][Epoch 9]
+[2026-09-18 19:07:30] FN reject:  96447 / 127413 = 0.7570
+[2026-09-18 19:07:30] TN reject:  116965 / 5060122 = 0.0231
+[2026-09-18 19:07:30] Reject precision: 0.4519
+[2026-09-18 19:07:30] Boost delta FN/TN: 6.4395 / 0.2468
+[2026-09-18 19:07:30] Boost selectivity: 26.0877
+[2026-09-18 19:07:30] Alpha_eff FN/TN: 3.4224 / 4.7379
+[2026-09-18 19:07:30] Rejected/normal CAM diagnostics (rejected FN=96447, rejected TN=116965, normal TN=4943157):
+[2026-09-18 19:07:30]   Delta_g rejected-FN/rejected-TN/normal-TN: 8.1257 / 4.0244 / 0.1575
+[2026-09-18 19:07:30]   Alpha_eff rejected-FN/rejected-TN/normal-TN: 3.1351 / 3.5668 / 4.8063
+[2026-09-18 19:07:30]   Dominant ratio rejected-FN/rejected-TN/normal-TN: 0.1899 / 0.2704 / 0.8029
+[2026-09-18 19:07:30] Raw loss FN/TN: 6.2759 / 0.0396
+[2026-09-18 19:08:11] Epoch 9 : val mAP 72.071
+[2026-09-18 19:14:03] [AdaptiveBoost][Epoch 10]
+[2026-09-18 19:14:03] FN reject:  99074 / 127413 = 0.7776
+[2026-09-18 19:14:03] TN reject:  138962 / 5060122 = 0.0275
+[2026-09-18 19:14:03] Reject precision: 0.4162
+[2026-09-18 19:14:03] Boost delta FN/TN: 7.1374 / 0.2975
+[2026-09-18 19:14:03] Boost selectivity: 23.9922
+[2026-09-18 19:14:03] Alpha_eff FN/TN: 3.3843 / 4.7242
+[2026-09-18 19:14:03] Rejected/normal CAM diagnostics (rejected FN=99074, rejected TN=138962, normal TN=4921160):
+[2026-09-18 19:14:03]   Delta_g rejected-FN/rejected-TN/normal-TN: 8.8192 / 4.3483 / 0.1831
+[2026-09-18 19:14:03]   Alpha_eff rejected-FN/rejected-TN/normal-TN: 3.1159 / 3.5662 / 4.7992
+[2026-09-18 19:14:03]   Dominant ratio rejected-FN/rejected-TN/normal-TN: 0.1846 / 0.2677 / 0.7969
+[2026-09-18 19:14:03] Raw loss FN/TN: 7.1468 / 0.0510
+[2026-09-18 19:14:49] Epoch 10 : val mAP 71.859
+[2026-09-18 19:14:49] /home/sx639/BridgeGapExplanationPAMC_official/train.py:124: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+[2026-09-18 19:14:49]   model_state, _ = torch.load(path)
+[2026-09-18 19:16:57] Training procedure completed!
+[2026-09-18 19:16:57] Test mAP : 73.460 when trained until epoch 6
