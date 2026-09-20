@@ -92,6 +92,10 @@ def get_configs():
     parser.add_argument('--adaptive_tau', type=float, default=0.9)
     parser.add_argument('--adaptive_temp', type=float, default=0.1)
     parser.add_argument('--adaptive_topk_ratio', type=float, default=0.10)
+    #Pseudo-positive recovery for LL-R
+    #开启伪标签  python main.py --dataset coco --largelossmod_scheme LL-R --use_pseudo_labels
+    parser.add_argument('--use_pseudo_labels', action='store_true', default=False,
+                        help='Enable epoch-delayed pseudo-positive recovery for LL-R (disabled by default).')
     parser.add_argument('--top_q', type=float, default=0.40,
                         help='Top fraction selected within the epoch-level LL-R candidate pool.')
     parser.add_argument('--lambda_rec', type=float, default=1.0,

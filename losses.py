@@ -77,7 +77,9 @@ def compute_batch_loss(logits, label_vec, P, return_diagnostics=False,
     # Recover only previous-core entries that remain actual LL-R candidates.
     # Keep rejection_mask and raw losses untouched for ranking and diagnostics.
     recovery_mask = torch.zeros_like(rejection_mask)
-    if P['largelossmod_scheme'] == 'LL-R' and recovery_seed_mask is not None:
+    if (P['largelossmod_scheme'] == 'LL-R'
+            and P.get('use_pseudo_labels', False)
+            and recovery_seed_mask is not None):
         recovery_mask = (
             rejection_mask & unobserved_mask.bool() & recovery_seed_mask.bool()
         )

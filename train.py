@@ -41,7 +41,7 @@ def run_train(P):
         raise ValueError('Observed training labels must be non-negative.')
 
     recovery_state = None
-    if P['largelossmod_scheme'] == 'LL-R':
+    if P['largelossmod_scheme'] == 'LL-R' and P.get('use_pseudo_labels', False):
         recovery_state = ReliablePositiveRecoveryState(
             num_samples=len(dataset['train']),
             num_classes=P['num_classes'], top_q=P['top_q'],
