@@ -76,6 +76,12 @@ def get_configs():
                         choices=_SCHEMES)
                         
     parser.add_argument('--num_epochs', type=int, default=10)
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=42,
+        help='Global random seed for reproducible training.'
+    )
     parser.add_argument('--gpu_num', type=str, default='0')
     parser.add_argument('--bsize', type=int, default=16)
     parser.add_argument('--lr', type=float, default=1e-5)

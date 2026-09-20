@@ -1,3 +1,4 @@
+import random
 import numpy as np
 import torch
 import datasets
@@ -6,13 +7,39 @@ from instrumentation import AdaptiveBoostDiagnosticsAccumulator, compute_metrics
 import losses
 import os
 
+def seed_everything(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % (2 ** 32)
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+
 def run_train(P):
+    seed_everything(P['seed'])
+    print(
+        f"[Reproducibility] seed={P['seed']}, "
+        f"cudnn_deterministic={torch.backends.cudnn.deterministic}, "
+        f"cudnn_benchmark={torch.backends.cudnn.benchmark}"
+    )
     dataset = datasets.get_data(P)
     if np.min(dataset['train'].label_matrix_obs) < 0:
         raise ValueError('Observed training labels must be non-negative.')
 
     dataloader = {}
+    phase_seed_offset = {'train': 0, 'val': 1, 'test': 2}
     for phase in ['train', 'val', 'test']:
+        generator = torch.Generator()
+        generator.manual_seed(P['seed'] + phase_seed_offset[phase])
         dataloader[phase] = torch.utils.data.DataLoader(
             dataset[phase],
             batch_size = P['bsize'],
@@ -20,7 +47,9 @@ def run_train(P):
             sampler = None,
             num_workers = P['num_workers'],
             drop_last = False,
-            pin_memory = True
+            pin_memory = True,
+            worker_init_fn=seed_worker,
+            generator=generator,
         )
     
     model = models.ImageClassifier(P)
