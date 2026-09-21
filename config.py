@@ -48,7 +48,6 @@ def set_default_configs(args):
     args.num_workers = 4
     args.lr_mult = 10
     args.save_path = './results'
-    args.adaptive_detach_gate = True
 
     return args
 
@@ -86,25 +85,7 @@ def get_configs():
     parser.add_argument('--bsize', type=int, default=16)
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--alpha', type=float, default=5)
-    parser.add_argument('--boostlu_mode', type=str, default='fixed',
-                        choices=('fixed', 'adaptive'))
-    #Delayed Adaptive BoostLU 超参
-    parser.add_argument('--adaptive_tau', type=float, default=0.9)
-    parser.add_argument('--adaptive_temp', type=float, default=0.1)
-    parser.add_argument('--adaptive_topk_ratio', type=float, default=0.10)
-    #Pseudo-positive recovery for LL-R
-    #开启伪标签  python main.py --dataset coco --largelossmod_scheme LL-R --use_pseudo_labels
-    parser.add_argument('--use_pseudo_labels', action='store_true', default=False,
-                        help='Enable epoch-delayed pseudo-positive recovery for LL-R (disabled by default).')
-    parser.add_argument('--top_q', type=float, default=0.40,
-                        help='Top fraction selected within the epoch-level LL-R candidate pool.')
-    parser.add_argument('--lambda_rec', type=float, default=1.0,
-                        help='Loss weight for recovered positive supervision.')
     args = parser.parse_args()
-    if not 0 < args.top_q <= 1:
-        parser.error('--top_q must satisfy 0 < top_q <= 1')
-    if not args.lambda_rec >= 0:
-        parser.error('--lambda_rec must be >= 0')
     args = set_default_configs(args)
     args = set_follow_up_configs(args)
     args = mch(**vars(args))

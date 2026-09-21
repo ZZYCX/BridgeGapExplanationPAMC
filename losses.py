@@ -25,8 +25,7 @@ def loss_an(logits, observed_labels, compute_corrected=False):
 top-level wrapper
 '''
 
-def compute_batch_loss(logits, label_vec, P, return_diagnostics=False,
-                       recovery_seed_mask=None):
+def compute_batch_loss(logits, label_vec, P, return_diagnostics=False):
      
     assert logits.dim() == 2
     
@@ -74,23 +73,6 @@ def compute_batch_loss(logits, label_vec, P, return_diagnostics=False,
             zero_loss_matrix = torch.zeros_like(loss_matrix)
             final_loss_matrix = torch.where(rejection_mask, zero_loss_matrix, loss_matrix)
                 
-    # Recover only previous-core entries that remain actual LL-R candidates.
-    # Keep rejection_mask and raw losses untouched for ranking and diagnostics.
-    recovery_mask = torch.zeros_like(rejection_mask)
-    if (P['largelossmod_scheme'] == 'LL-R'
-            and P.get('use_pseudo_labels', False)
-            and recovery_seed_mask is not None):
-        recovery_mask = (
-            rejection_mask & unobserved_mask.bool() & recovery_seed_mask.bool()
-        )
-        positive_loss_matrix = F.binary_cross_entropy_with_logits(
-            logits, torch.ones_like(logits), reduction='none'
-        )
-        final_loss_matrix = torch.where(
-            recovery_mask, P['lambda_rec'] * positive_loss_matrix,
-            final_loss_matrix,
-        )
-
     main_loss = final_loss_matrix.mean()
 
     if return_diagnostics:
@@ -98,7 +80,6 @@ def compute_batch_loss(logits, label_vec, P, return_diagnostics=False,
             'raw_loss_matrix': loss_matrix.detach(),
             'unobserved_mask': unobserved_mask.detach().bool(),
             'rejection_mask': rejection_mask.detach(),
-            'recovery_mask': recovery_mask.detach(),
         }
         return main_loss, correction_idx, loss_diagnostics
 
