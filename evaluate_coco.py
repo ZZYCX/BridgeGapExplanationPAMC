@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader
 import datasets
 import models
 from instrumentation import compute_metrics
+from metrics import MAP_PROTOCOL
 
 
 def parse_args():
@@ -83,7 +84,7 @@ def main():
 
     y_pred = np.zeros(
         (len(test_set), checkpoint_config["num_classes"]),
-        dtype=np.float32,
+        dtype=np.float64,
     )
     y_true = np.zeros_like(y_pred)
     offset = 0
@@ -95,7 +96,7 @@ def main():
             if logits.dim() == 1:
                 logits = logits.unsqueeze(0)
 
-            predictions = torch.sigmoid(logits).cpu().numpy()
+            predictions = logits.to(device='cpu', dtype=torch.float64).numpy()
             labels = batch["label_vec_true"].numpy()
             batch_size = predictions.shape[0]
             y_pred[offset : offset + batch_size] = predictions
@@ -124,6 +125,7 @@ def main():
         "num_classes": checkpoint_config["num_classes"],
         "device": str(device),
         "mAP": float(metrics["map"]),
+        "map_protocol": MAP_PROTOCOL,
         "per_class_ap_file": str(per_class_path),
     }
     summary_path.write_text(
@@ -140,7 +142,7 @@ def main():
     print(f"Checkpoint: {checkpoint_path}")
     print("Test dataset: COCO val2014")
     print(f"Number of test images: {len(test_set)}")
-    print(f"Test mAP: {metrics['map']:.6f}")
+    print(f"Test mAP: {metrics['map']:.6f} ({MAP_PROTOCOL})")
     print(f"Summary: {summary_path}")
     print(f"Per-class AP: {per_class_path}")
 

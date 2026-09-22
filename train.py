@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import datasets
 import models
+from metrics import MAP_PROTOCOL
 from instrumentation import (
     LLRCandidatePoolOracleAccumulator,
     compute_metrics,
@@ -28,6 +29,11 @@ def seed_worker(worker_id):
 
 
 def run_train(P):
+    path = os.path.join(P['save_path'], 'bestmodel.pt')
+    # There is no resume implementation: never reuse historical selection state
+    # or overwrite an existing (possibly sigmoid-scored) checkpoint.
+    if os.path.exists(path):
+        raise FileExistsError(f'Use a fresh save_path; preserving checkpoint: {path}')
     seed_everything(P['seed'])
     print(
         f"[Reproducibility] seed={P['seed']}, "
@@ -69,7 +75,8 @@ def run_train(P):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
 
-    bestmap_val = 0
+    bestmap_val = -float('inf')
+    print(f'[Evaluation] mAP protocol={MAP_PROTOCOL}; alpha={P["alpha"]}')
     rank_oracle_path = os.path.join(
         P['save_path'], 'llr_candidate_pool_oracle_curve.csv'
     )
@@ -119,13 +126,14 @@ def run_train(P):
                             idx = batch['idx']
                             dataset[phase].label_matrix_obs[idx[correction_idx[0].cpu()], correction_idx[1].cpu()] = 1.0
                     else:
-                        pred_batches.append(torch.sigmoid(logits))
+                        pred_batches.append(logits.to(device='cpu', dtype=torch.float64))
                         label_vec_true = batch['label_vec_true'].numpy()
                         this_batch_size = label_vec_true.shape[0]
                         y_true[batch_stack : batch_stack+this_batch_size] = label_vec_true
                         batch_stack += this_batch_size
 
                 if phase == 'val':
+                    assert batch_stack == len(dataset[phase])
                     y_pred = torch.cat(pred_batches, dim=0).cpu().numpy()
                     metrics = compute_metrics(y_pred, y_true)
                 elif phase == 'train':
@@ -149,7 +157,14 @@ def run_train(P):
             
             print(f'Saving model weight for best val mAP {bestmap_val:.3f}')
             path = os.path.join(P['save_path'], 'bestmodel.pt')
-            torch.save((model.state_dict(), P), path)
+            checkpoint_config = dict(P)
+            checkpoint_config.update(
+                map_protocol=MAP_PROTOCOL,
+                bestmap_val=bestmap_val,
+                bestmap_epoch=bestmap_epoch,
+                best_alpha=P['alpha'],
+            )
+            torch.save((model.state_dict(), checkpoint_config), path)
 
     # Test phase
     path = os.path.join(P['save_path'], 'bestmodel.pt')
@@ -169,12 +184,13 @@ def run_train(P):
             logits = model(image)
             if logits.dim() == 1:
                 logits = torch.unsqueeze(logits, 0)
-            pred_batches.append(torch.sigmoid(logits))
+            pred_batches.append(logits.to(device='cpu', dtype=torch.float64))
 
             this_batch_size = label_vec_true.shape[0]
             y_true[batch_stack : batch_stack+this_batch_size] = label_vec_true
             batch_stack += this_batch_size
 
+        assert batch_stack == len(dataset[phase])
         y_pred = torch.cat(pred_batches, dim=0).cpu().numpy()
     metrics = compute_metrics(y_pred, y_true)
     map_test = metrics['map']

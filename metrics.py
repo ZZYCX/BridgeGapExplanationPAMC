@@ -1,6 +1,8 @@
 import numpy as np
 from sklearn.metrics import average_precision_score
 
+MAP_PROTOCOL = 'logits_ap_float64_v1'
+
 def check_inputs(targs, preds):
     
     '''
@@ -10,7 +12,7 @@ def check_inputs(targs, preds):
     assert (np.shape(preds) == np.shape(targs))
     assert type(preds) is np.ndarray
     assert type(targs) is np.ndarray
-    assert (np.max(preds) <= 1.0) and (np.min(preds) >= 0.0)
+    assert np.isfinite(preds).all()
     assert (np.max(targs) <= 1.0) and (np.min(targs) >= 0.0)
     assert (len(np.unique(targs)) <= 2)
 
@@ -21,7 +23,7 @@ def compute_avg_precision(targs, preds):
     
     Parameters
     targs: Binary targets.
-    preds: Predicted probability scores.
+    preds: Final class logits (unbounded ranking scores, without sigmoid).
     '''
     
     check_inputs(targs,preds)

@@ -339,14 +339,14 @@ class train_logger:
 def compute_metrics(y_pred, y_true):
     
     '''
-    Given predictions and labels, compute a few metrics.
+    Compute per-class AP and macro mAP from full-dataset final logits.
     '''
     
     num_examples, num_classes = np.shape(y_true)
     
     results = {}
     average_precision_list = []
-    y_pred = np.array(y_pred)
+    y_pred = np.array(y_pred, dtype=np.float64)
     y_true = np.array(y_true)
     y_true = np.array(y_true == 1, dtype=np.float32) # convert from -1 / 1 format to 0 / 1 format
     for j in range(num_classes):
