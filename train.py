@@ -22,30 +22,54 @@ def load_semantic_cache(P, dataset):
     with open(metadata_file, encoding='utf-8') as handle:
         metadata = json.load(handle)
     expected = {'dataset': P['dataset'], 'clip_model': 'ViT-B/16',
-                'score_source': 'qz_combined', 'num_classes': P['num_classes'],
+                'num_classes': P['num_classes'],
                 'split_seed': P['split_seed'], 'ss_seed': P['ss_seed'],
                 'val_frac': P['val_frac'], 'ss_frac_train': P['ss_frac_train'],
                 'ss_frac_val': P['ss_frac_val']}
     for key, value in expected.items():
         if metadata.get(key) != value:
             raise ValueError(f'Semantic cache metadata mismatch for {key}: {metadata.get(key)!r} != {value!r}')
+    A = float(P.get('semantic_lambda_global', 0.5))
+    if not 0.0 <= A <= 1.0:
+        raise ValueError('semantic_lambda_global must be in [0,1]')
     semantic_q = {}
     with np.load(score_file, allow_pickle=False) as cache:
+        component_keys = {f'q_{kind}_{phase}' for kind in ('global', 'local')
+                          for phase in ('train', 'val', 'test')}
+        available = component_keys.intersection(cache.files)
+        if available and available != component_keys:
+            raise ValueError('Semantic cache has incomplete global/local components')
+        has_components = available == component_keys
+        if has_components:
+            if metadata.get('cache_schema_version') != 2 or metadata.get('score_source') != 'qz_global_local':
+                raise ValueError('Semantic cache schema v2 metadata mismatch')
+        elif A != 0.5:
+            raise ValueError('Legacy semantic cache contains only pre-fused q.\n'
+                             'Regenerate cache with precompute_clip_qz.py\n'
+                             'to use semantic_lambda_global != 0.5.')
+        elif metadata.get('score_source') != 'qz_combined':
+            raise ValueError('Legacy semantic cache score_source mismatch')
         for phase in ('train', 'val', 'test'):
-            q = cache[f'q_{phase}']
             image_ids = cache[f'{phase}_image_ids']
             if not np.array_equal(image_ids, dataset[phase].image_ids):
                 raise ValueError(f'Semantic cache image IDs do not match {phase} split')
-            if q.shape != (len(dataset[phase]), P['num_classes']):
-                raise ValueError(f'Semantic cache {phase} shape mismatch: {q.shape}')
-            if not np.isfinite(q).all() or np.any(q < 0) or np.any(q > 1):
-                raise ValueError(f'Semantic cache {phase} scores must be finite and in [0,1]')
+            names = (f'q_global_{phase}', f'q_local_{phase}') if has_components else (f'q_{phase}',)
+            for name in names:
+                part = cache[name]
+                if part.shape != (len(dataset[phase]), P['num_classes']):
+                    raise ValueError(f'Semantic cache {name} shape mismatch: {part.shape}')
+                if not np.isfinite(part).all() or np.any(part < 0) or np.any(part > 1):
+                    raise ValueError(f'Semantic cache {name} must be finite and in [0,1]')
+            q = ((A * cache[names[0]] + (1.0 - A) * cache[names[1]]).astype(np.float32)
+                 if has_components else cache[names[0]])
             semantic_q[phase] = torch.from_numpy(np.array(q, dtype=np.float32, copy=True))
     print('[Semantic-Adaptive BoostLU]')
     print(f'enabled=True\nalpha0={float(P["alpha"])}\ndelta={float(P["semantic_delta"])}')
+    print(f'semantic_lambda_global={A}\nsemantic_lambda_local={1.0 - A}')
     print(f'expected alpha range=[{P["alpha"] - P["semantic_delta"]},'
           f'{P["alpha"] + P["semantic_delta"]}]')
-    print(f'score source=qz_combined\nCLIP=ViT-B/16\nsemantic score file={score_file}')
+    print(f'score source={"qz_global_local" if has_components else "qz_combined"}'
+          f'\nCLIP=ViT-B/16\nsemantic score file={score_file}')
     for phase in ('train', 'val', 'test'):
         print(f'q_{phase} shape={tuple(semantic_q[phase].shape)}')
     return semantic_q

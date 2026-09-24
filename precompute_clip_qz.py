@@ -1,6 +1,6 @@
-"""Precompute frozen CLIP qz_combined evidence for the baseline COCO split.
+"""Precompute frozen CLIP global and local evidence for the baseline COCO split.
    用冻结的 CLIP ViT-B/16 分别计算原图的 global 相似度，以及五个固定裁剪中最大的 local 相似度。
-   每个类别只用 train split 的分数计算均值和标准差，再把 train、val、test 的分数标准化、经过 sigmoid，以默认的 0.5/0.5 权重合成 \(q_{ic}\in[0,1]\)。结果保存为 NPZ 缓存及同名 JSON 元数据
+   每个类别只用 train split 的分数计算均值和标准差，再把 train、val、test 的分数标准化、经过 sigmoid。分别保存 global/local 分量，并保存默认 0.5/0.5 融合结果供旧代码使用。
 """
 
 #CLIP location: /home/ubuntu2/.cache/clip/ViT-B-16.pt    --clip-model "ViT-B/16" --clip-cache /home/ubuntu2/.cache/clip
@@ -128,15 +128,16 @@ def sigmoid(z):
     return 1.0 / (1.0 + np.exp(-np.clip(z, -40.0, 40.0)))
 
 
-def build_q(raw_global, raw_local, mu_global, std_global, mu_local,
-            std_local, lambda_global):
+def build_q_components(raw_global, raw_local, mu_global, std_global,
+                       mu_local, std_local):
     z_global = (raw_global - mu_global) / (std_global + EPS)
     z_local = (raw_local - mu_local) / (std_local + EPS)
-    q = lambda_global * sigmoid(z_global) + (1.0 - lambda_global) * sigmoid(z_local)
-    q = q.astype(np.float32)
-    if not np.isfinite(q).all() or np.any(q < 0) or np.any(q > 1):
-        raise ValueError('qz_combined must be finite and in [0,1]')
-    return q
+    q_global = sigmoid(z_global).astype(np.float32)
+    q_local = sigmoid(z_local).astype(np.float32)
+    for name, q in (('global', q_global), ('local', q_local)):
+        if not np.isfinite(q).all() or np.any(q < 0) or np.any(q > 1):
+            raise ValueError(f'qz_{name} must be finite and in [0,1]')
+    return q_global, q_local
 
 
 def main():
@@ -169,12 +170,19 @@ def main():
     std_global = np.maximum(train_global.std(axis=0, dtype=np.float64), EPS)
     mu_local = train_local.mean(axis=0, dtype=np.float64)
     std_local = np.maximum(train_local.std(axis=0, dtype=np.float64), EPS)
-    q = {phase: build_q(*raw[phase], mu_global, std_global, mu_local,
-                        std_local, args.lambda_global)
+    components = {phase: build_q_components(*raw[phase], mu_global, std_global,
+                                           mu_local, std_local)
+         for phase in ('train', 'val', 'test')}
+    q = {phase: (args.lambda_global * components[phase][0]
+                 + (1.0 - args.lambda_global) * components[phase][1]).astype(np.float32)
          for phase in ('train', 'val', 'test')}
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(output, q_train=q['train'], q_val=q['val'], q_test=q['test'],
+    np.savez_compressed(output,
+                        q_global_train=components['train'][0], q_local_train=components['train'][1],
+                        q_global_val=components['val'][0], q_local_val=components['val'][1],
+                        q_global_test=components['test'][0], q_local_test=components['test'][1],
+                        q_train=q['train'], q_val=q['val'], q_test=q['test'],
                         train_image_ids=image_ids['train'], val_image_ids=image_ids['val'],
                         test_image_ids=image_ids['test'], mu_global=mu_global,
                         std_global=std_global, mu_local=mu_local, std_local=std_local)
@@ -185,7 +193,10 @@ def main():
                     ss_frac_train=SS_FRAC_TRAIN, ss_frac_val=SS_FRAC_VAL,
                     num_classes=len(names), train_count=len(image_ids['train']),
                     val_count=len(image_ids['val']), test_count=len(image_ids['test']),
-                    score_source='qz_combined')
+                    cache_schema_version=2,
+                    semantic_components=['qz_global', 'qz_local'],
+                    default_lambda_global=0.5,
+                    score_source='qz_global_local')
     output.with_suffix('.json').write_text(json.dumps(metadata, indent=2) + '\n',
                                             encoding='utf-8')
     print(f'Saved {output} and {output.with_suffix(".json")}')

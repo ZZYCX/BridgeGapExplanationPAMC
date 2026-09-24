@@ -86,9 +86,14 @@ def get_configs():
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--alpha', type=float, default=5)
     parser.add_argument('--semantic_adaptive_boostlu', action='store_true')
-    parser.add_argument('--semantic_delta', type=float, default=3.0)
+    parser.add_argument('--semantic_delta', type=float, default=5.0)
+    #实际正式训练中--semantic_lambda_global 控制 global 分量的权重 A；local 分量的权重是 1-A。
+    # train.py 从新缓存读取两个分量后，按 q = A·q_global + (1-A)·q_local 构造传给模型的 semantic_q
+    parser.add_argument('--semantic_lambda_global', type=float, default=0.5)
     parser.add_argument('--semantic_score_file', type=str, default=None)
     args = parser.parse_args()
+    if not 0.0 <= args.semantic_lambda_global <= 1.0:
+        parser.error('--semantic_lambda_global must be in [0,1]')
     if args.semantic_adaptive_boostlu and args.semantic_score_file is None:
         parser.error('--semantic_score_file is required with --semantic_adaptive_boostlu')
     args = set_default_configs(args)
