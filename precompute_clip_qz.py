@@ -15,6 +15,8 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
+from torchvision.transforms import InterpolationMode
+from torchvision.transforms import functional as TF
 
 import datasets
 
@@ -38,6 +40,10 @@ def parse_args():
     p.add_argument('--local-crop-ratio', type=float, default=0.6)
     p.add_argument('--lambda-global', type=float, default=0.5)
     p.add_argument('--device', default='cuda')
+    p.add_argument('--preprocess-device', choices=('auto', 'cpu', 'cuda'), default='cuda',
+                   help='Resize, crop and normalize on this device; image decoding remains on CPU')
+    p.add_argument('--num-workers', type=int, default=4,
+                   help='Parallel workers for image decoding (0 disables multiprocessing)')
     args = p.parse_args()
     if args.dataset != 'coco' or args.clip_model != 'ViT-B/16':
         p.error('This cache requires COCO and OpenAI CLIP ViT-B/16')
@@ -47,6 +53,12 @@ def parse_args():
         p.error('lambda-global must be in [0,1]')
     if not args.output.endswith('.npz'):
         p.error('--output must be an .npz path')
+    if args.num_workers < 0:
+        p.error('--num-workers must be nonnegative')
+    if args.preprocess_device == 'auto':
+        args.preprocess_device = 'cuda' if args.device.startswith('cuda') else 'cpu'
+    if args.preprocess_device == 'cuda' and not args.device.startswith('cuda'):
+        p.error('--preprocess-device cuda requires --device cuda')
     return args
 
 
@@ -94,30 +106,93 @@ class ClipViews(Dataset):
         return global_view, local_views
 
 
+class ClipImages(Dataset):
+    """Decode only; keep variable image sizes for GPU preprocessing in the main process."""
+    def __init__(self, image_ids, image_root):
+        self.image_ids = image_ids
+        self.image_root = image_root
+
+    def __len__(self):
+        return len(self.image_ids)
+
+    def __getitem__(self, index):
+        path = os.path.join(self.image_root, str(self.image_ids[index]))
+        with Image.open(path) as source:
+            return torch.from_numpy(np.array(source.convert('RGB'), copy=True))
+
+
+def keep_images(images):
+    return images
+
+
+def gpu_preprocess_views(images, crop_ratio, device, image_size, mean, std):
+    """Match CLIP's resize-shorter-side/center-crop recipe on CUDA tensors."""
+    global_views, local_views = [], []
+    for image in images:
+        image = image.to(device, non_blocking=True).permute(2, 0, 1)
+        _, height, width = image.shape
+        cw = max(1, min(width, int(round(width * crop_ratio))))
+        ch = max(1, min(height, int(round(height * crop_ratio))))
+        boxes = [(0, 0), (width - cw, 0), (0, height - ch),
+                 (width - cw, height - ch), ((width - cw) // 2, (height - ch) // 2)]
+
+        def prepare(views):
+            views = torch.stack(views).float().div_(255.0)
+            views = TF.resize(views, image_size, interpolation=InterpolationMode.BICUBIC,
+                              antialias=True)
+            views.clamp_(0.0, 1.0)
+            views = TF.center_crop(views, [image_size, image_size])
+            return TF.normalize(views, mean, std)
+
+        global_views.append(prepare([image])[0])
+        local_views.append(prepare([image[:, y:y + ch, x:x + cw] for x, y in boxes]))
+    return torch.stack(global_views), torch.stack(local_views)
+
+
+def clip_preprocess_parameters(preprocess):
+    resize = next(t for t in preprocess.transforms if t.__class__.__name__ == 'Resize')
+    normalize = next(t for t in preprocess.transforms if t.__class__.__name__ == 'Normalize')
+    if not isinstance(resize.size, int):
+        raise ValueError('GPU preprocessing requires a square CLIP resize size')
+    return resize.size, normalize.mean, normalize.std
+
+
 @torch.inference_mode()
 def encode_chunks(model, images, text_features, chunk_size, device):
     scores = []
     for chunk in images.split(chunk_size):
         embedding = F.normalize(model.encode_image(chunk.to(device)).float(), dim=-1)
-        scores.append((embedding @ text_features.T).float().cpu().numpy())
-    return np.concatenate(scores, axis=0)
+        scores.append((embedding @ text_features.T).float())
+    return torch.cat(scores, dim=0)
 
 
 @torch.inference_mode()
 def extract_split(image_ids, image_root, preprocess, crop_ratio, model,
-                  text_features, clip_batch_size, device, phase):
-    views = ClipViews(image_ids, image_root, preprocess, crop_ratio)
+                  text_features, clip_batch_size, device, phase,
+                  preprocess_device='cuda', num_workers=4):
+    use_gpu_preprocess = preprocess_device == 'cuda'
+    views = (ClipImages(image_ids, image_root) if use_gpu_preprocess else
+             ClipViews(image_ids, image_root, preprocess, crop_ratio))
     loader = DataLoader(views, batch_size=max(1, clip_batch_size // 6),
-                        shuffle=False, num_workers=0)
+                        shuffle=False, num_workers=num_workers,
+                        pin_memory=device.startswith('cuda'),
+                        collate_fn=keep_images if use_gpu_preprocess else None,
+                        persistent_workers=num_workers > 0)
     raw_global, raw_local = [], []
-    for batch_number, (global_views, local_views) in enumerate(loader, 1):
-        global_score = encode_chunks(model, global_views, text_features,
-                                     clip_batch_size, device)
-        local_score = encode_chunks(model, local_views.flatten(0, 1),
-                                    text_features, clip_batch_size, device)
-        raw_global.append(global_score.astype(np.float32))
+    parameters = clip_preprocess_parameters(preprocess) if use_gpu_preprocess else None
+    for batch_number, batch in enumerate(loader, 1):
+        if use_gpu_preprocess:
+            global_views, local_views = gpu_preprocess_views(
+                batch, crop_ratio, device, *parameters)
+        else:
+            global_views, local_views = batch
+        scores = encode_chunks(model, torch.cat((global_views, local_views.flatten(0, 1))),
+                               text_features, clip_batch_size, device)
+        global_score = scores[:len(global_views)]
+        local_score = scores[len(global_views):]
+        raw_global.append(global_score.cpu().numpy().astype(np.float32))
         raw_local.append(local_score.reshape(len(global_views), 5, -1)
-                         .max(axis=1).astype(np.float32))
+                         .max(dim=1).values.cpu().numpy().astype(np.float32))
         if batch_number % 100 == 0 or batch_number == len(loader):
             print(f'[{phase}] {min(batch_number * loader.batch_size, len(views))}/{len(views)}',
                   flush=True)
@@ -144,6 +219,8 @@ def main():
     args = parse_args()
     if args.device.startswith('cuda') and not torch.cuda.is_available():
         raise RuntimeError('CUDA requested but unavailable')
+    if args.preprocess_device == 'cuda' and not torch.cuda.is_available():
+        raise RuntimeError('CUDA preprocessing requested but unavailable')
     cache_file = Path(args.clip_cache) / 'ViT-B-16.pt'
     if not cache_file.is_file():
         raise FileNotFoundError(f'Frozen CLIP weights missing: {cache_file}')
@@ -164,7 +241,8 @@ def main():
         for phase in ('train', 'val', 'test'):
             raw[phase] = extract_split(image_ids[phase], image_root, preprocess,
                                        args.local_crop_ratio, model, text_features,
-                                       args.clip_batch_size, args.device, phase)
+                                       args.clip_batch_size, args.device, phase,
+                                       args.preprocess_device, args.num_workers)
     train_global, train_local = raw['train']
     mu_global = train_global.mean(axis=0, dtype=np.float64)
     std_global = np.maximum(train_global.std(axis=0, dtype=np.float64), EPS)
