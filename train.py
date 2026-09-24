@@ -10,6 +10,99 @@ from instrumentation import (
 )
 import losses
 import os
+import csv
+import json
+
+
+def load_semantic_cache(P, dataset):
+    score_file = P.get('semantic_score_file')
+    if not score_file:
+        raise ValueError('semantic_score_file is required for Semantic-Adaptive BoostLU')
+    metadata_file = os.path.splitext(score_file)[0] + '.json'
+    with open(metadata_file, encoding='utf-8') as handle:
+        metadata = json.load(handle)
+    expected = {'dataset': P['dataset'], 'clip_model': 'ViT-B/16',
+                'score_source': 'qz_combined', 'num_classes': P['num_classes'],
+                'split_seed': P['split_seed'], 'ss_seed': P['ss_seed'],
+                'val_frac': P['val_frac'], 'ss_frac_train': P['ss_frac_train'],
+                'ss_frac_val': P['ss_frac_val']}
+    for key, value in expected.items():
+        if metadata.get(key) != value:
+            raise ValueError(f'Semantic cache metadata mismatch for {key}: {metadata.get(key)!r} != {value!r}')
+    semantic_q = {}
+    with np.load(score_file, allow_pickle=False) as cache:
+        for phase in ('train', 'val', 'test'):
+            q = cache[f'q_{phase}']
+            image_ids = cache[f'{phase}_image_ids']
+            if not np.array_equal(image_ids, dataset[phase].image_ids):
+                raise ValueError(f'Semantic cache image IDs do not match {phase} split')
+            if q.shape != (len(dataset[phase]), P['num_classes']):
+                raise ValueError(f'Semantic cache {phase} shape mismatch: {q.shape}')
+            if not np.isfinite(q).all() or np.any(q < 0) or np.any(q > 1):
+                raise ValueError(f'Semantic cache {phase} scores must be finite and in [0,1]')
+            semantic_q[phase] = torch.from_numpy(np.array(q, dtype=np.float32, copy=True))
+    print('[Semantic-Adaptive BoostLU]')
+    print(f'enabled=True\nalpha0={float(P["alpha"])}\ndelta={float(P["semantic_delta"])}')
+    print(f'expected alpha range=[{P["alpha"] - P["semantic_delta"]},'
+          f'{P["alpha"] + P["semantic_delta"]}]')
+    print(f'score source=qz_combined\nCLIP=ViT-B/16\nsemantic score file={score_file}')
+    for phase in ('train', 'val', 'test'):
+        print(f'q_{phase} shape={tuple(semantic_q[phase].shape)}')
+    return semantic_q
+
+
+class SemanticBoostDiagnostics:
+    FIELDS = ('epoch', 'q_hidden_FN_mean', 'q_TN_mean', 'q_observed_positive_mean',
+              'alpha_hidden_FN_mean', 'alpha_TN_mean', 'alpha_observed_positive_mean',
+              'alpha_mean', 'alpha_std', 'alpha_min', 'alpha_max')
+
+    def __init__(self, alpha0, delta):
+        self.alpha0 = alpha0
+        self.delta = delta
+        self.group_sums = [0.0, 0.0, 0.0]
+        self.group_counts = [0, 0, 0]
+        self.alpha_sum = 0.0
+        self.alpha_sumsq = 0.0
+        self.alpha_count = 0
+        self.alpha_min = float('inf')
+        self.alpha_max = -float('inf')
+
+    @torch.no_grad()
+    def update(self, q, observed, true):
+        q = q.detach()
+        observed = observed.detach()
+        true = true.detach()
+        masks = ((observed == 0) & (true == 1),
+                 (observed == 0) & (true != 1), observed == 1)
+        for k, mask in enumerate(masks):
+            self.group_sums[k] += q[mask].double().sum().item()
+            self.group_counts[k] += mask.sum().item()
+        alpha = self.alpha0 + self.delta * (2.0 * q - 1.0)
+        self.alpha_sum += alpha.double().sum().item()
+        self.alpha_sumsq += alpha.double().square().sum().item()
+        self.alpha_count += alpha.numel()
+        self.alpha_min = min(self.alpha_min, alpha.min().item())
+        self.alpha_max = max(self.alpha_max, alpha.max().item())
+
+    def row(self, epoch):
+        means = [s / n if n else float('nan')
+                 for s, n in zip(self.group_sums, self.group_counts)]
+        alpha_mean = self.alpha_sum / self.alpha_count
+        variance = max(0.0, self.alpha_sumsq / self.alpha_count - alpha_mean ** 2)
+        return dict(zip(self.FIELDS, (epoch, *means,
+                                      *(self.alpha0 + self.delta * (2.0 * q - 1.0)
+                                        for q in means),
+                                      alpha_mean, variance ** 0.5,
+                                      self.alpha_min, self.alpha_max)))
+
+    @classmethod
+    def append_csv(cls, path, row):
+        write_header = not os.path.exists(path) or os.path.getsize(path) == 0
+        with open(path, 'a', newline='', encoding='utf-8') as handle:
+            writer = csv.DictWriter(handle, fieldnames=cls.FIELDS)
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row)
 
 def seed_everything(seed):
     random.seed(seed)
@@ -41,6 +134,7 @@ def run_train(P):
         f"cudnn_benchmark={torch.backends.cudnn.benchmark}"
     )
     dataset = datasets.get_data(P)
+    semantic_q = load_semantic_cache(P, dataset) if P.get('semantic_adaptive_boostlu', False) else None
     if np.min(dataset['train'].label_matrix_obs) < 0:
         raise ValueError('Observed training labels must be non-negative.')
 
@@ -84,6 +178,8 @@ def run_train(P):
     for epoch in range(1, P['num_epochs']+1):
         clean_rate_used = P['clean_rate']
         rank_oracle_diag = LLRCandidatePoolOracleAccumulator()
+        semantic_diag = (SemanticBoostDiagnostics(P['alpha'], P['semantic_delta'])
+                         if semantic_q is not None else None)
         for phase in ['train', 'val']:
             if phase == 'train':
                 model.train()
@@ -102,7 +198,13 @@ def run_train(P):
                         label_vec_obs = batch['label_vec_obs'].to(device, non_blocking=True)
                         optimizer.zero_grad(set_to_none=True)
 
-                    logits = model(image)
+                    semantic_q_batch = None
+                    if semantic_q is not None:
+                        batch_idx = batch['idx'].long()
+                        semantic_q_batch = semantic_q[phase].index_select(0, batch_idx).to(
+                            device, non_blocking=True
+                        )
+                    logits = model(image, semantic_q=semantic_q_batch)
                     if logits.dim() == 1:
                         logits = torch.unsqueeze(logits, 0)
 
@@ -113,6 +215,8 @@ def run_train(P):
                         label_vec_true = batch['label_vec_true'].to(
                             device, non_blocking=True
                         )
+                        if semantic_diag is not None:
+                            semantic_diag.update(semantic_q_batch, label_vec_obs, label_vec_true)
                         rank_oracle_diag.update(
                             label_vec_obs,
                             label_vec_true,
@@ -144,6 +248,17 @@ def run_train(P):
                         rank_oracle_path, rank_oracle_rows
                     )
                     rank_oracle_diag.print_summary(rank_oracle_rows)
+                    if semantic_diag is not None:
+                        semantic_row = semantic_diag.row(epoch)
+                        semantic_diag.append_csv(
+                            os.path.join(P['save_path'], 'semantic_boost_diagnostics.csv'),
+                            semantic_row,
+                        )
+                        print(f'[Semantic][Epoch {epoch}] mean alpha FN='
+                              f'{semantic_row["alpha_hidden_FN_mean"]:.4f}; '
+                              f'mean alpha TN={semantic_row["alpha_TN_mean"]:.4f}; '
+                              f'LL-R candidate FN precision='
+                              f'{rank_oracle_rows[0]["pool_precision"]:.4f}')
         del y_pred
         del y_true
         map_val = metrics['map']
@@ -181,7 +296,13 @@ def run_train(P):
             image = batch['image'].to(device, non_blocking=True)
             label_vec_true = batch['label_vec_true'].numpy()
 
-            logits = model(image)
+            semantic_q_batch = None
+            if semantic_q is not None:
+                batch_idx = batch['idx'].long()
+                semantic_q_batch = semantic_q[phase].index_select(0, batch_idx).to(
+                    device, non_blocking=True
+                )
+            logits = model(image, semantic_q=semantic_q_batch)
             if logits.dim() == 1:
                 logits = torch.unsqueeze(logits, 0)
             pred_batches.append(logits.to(device='cpu', dtype=torch.float64))

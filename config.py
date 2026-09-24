@@ -85,7 +85,12 @@ def get_configs():
     parser.add_argument('--bsize', type=int, default=16)
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--alpha', type=float, default=5)
+    parser.add_argument('--semantic_adaptive_boostlu', action='store_true')
+    parser.add_argument('--semantic_delta', type=float, default=3.0)
+    parser.add_argument('--semantic_score_file', type=str, default=None)
     args = parser.parse_args()
+    if args.semantic_adaptive_boostlu and args.semantic_score_file is None:
+        parser.error('--semantic_score_file is required with --semantic_adaptive_boostlu')
     args = set_default_configs(args)
     args = set_follow_up_configs(args)
     args = mch(**vars(args))
