@@ -9,6 +9,7 @@ from instrumentation import (
     compute_metrics,
 )
 import losses
+from pseudo_positive_diagnostics import PseudoPositiveDiagnostics
 import os
 import csv
 import json
@@ -202,6 +203,8 @@ def run_train(P):
     for epoch in range(1, P['num_epochs']+1):
         clean_rate_used = P['clean_rate']
         rank_oracle_diag = LLRCandidatePoolOracleAccumulator()
+        pseudo_diag = (PseudoPositiveDiagnostics(P['num_classes'])
+                       if P.get('llr_pseudo_positive_recovery', False) else None)
         semantic_diag = (SemanticBoostDiagnostics(P['alpha'], P['semantic_delta'])
                          if semantic_q is not None else None)
         for phase in ['train', 'val']:
@@ -234,7 +237,7 @@ def run_train(P):
 
                     if phase == 'train':
                         loss, correction_idx, loss_diag = losses.compute_batch_loss(
-                            logits, label_vec_obs, P, return_diagnostics=True,
+                            logits, label_vec_obs, P, return_diagnostics=True, epoch=epoch,
                         )
                         label_vec_true = batch['label_vec_true'].to(
                             device, non_blocking=True
@@ -247,6 +250,8 @@ def run_train(P):
                             loss_diag['raw_loss_matrix'],
                             loss_diag['rejection_mask'],
                         )
+                        if pseudo_diag is not None:
+                            pseudo_diag.update(logits, label_vec_true, loss_diag)
                         loss.backward()
                         optimizer.step()
 
@@ -272,6 +277,12 @@ def run_train(P):
                         rank_oracle_path, rank_oracle_rows
                     )
                     rank_oracle_diag.print_summary(rank_oracle_rows)
+                    if pseudo_diag is not None:
+                        pseudo_diag.write(
+                            P['save_path'], epoch,
+                            P['llr_pseudo_positive_ratio'],
+                            P['llr_pseudo_positive_start_epoch'],
+                        )
                     if semantic_diag is not None:
                         semantic_row = semantic_diag.row(epoch)
                         semantic_diag.append_csv(

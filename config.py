@@ -91,7 +91,16 @@ def get_configs():
     # train.py 从新缓存读取两个分量后，按 q = A·q_global + (1-A)·q_local 构造传给模型的 semantic_q
     parser.add_argument('--semantic_lambda_global', type=float, default=0.5)
     parser.add_argument('--semantic_score_file', type=str, default=None)
+    parser.add_argument('--llr_pseudo_positive_recovery', action='store_true')
+    parser.add_argument('--llr_pseudo_positive_ratio', type=float, default=0.40)
+    parser.add_argument('--llr_pseudo_positive_start_epoch', type=int, default=2)
     args = parser.parse_args()
+    if not 0.0 <= args.llr_pseudo_positive_ratio <= 1.0:
+        parser.error('--llr_pseudo_positive_ratio must be in [0,1]')
+    if args.llr_pseudo_positive_start_epoch < 1:
+        parser.error('--llr_pseudo_positive_start_epoch must be >= 1')
+    if args.llr_pseudo_positive_recovery and args.largelossmod_scheme != 'LL-R':
+        parser.error('--llr_pseudo_positive_recovery requires --largelossmod_scheme LL-R')
     if not 0.0 <= args.semantic_lambda_global <= 1.0:
         parser.error('--semantic_lambda_global must be in [0,1]')
     if args.semantic_adaptive_boostlu and args.semantic_score_file is None:
