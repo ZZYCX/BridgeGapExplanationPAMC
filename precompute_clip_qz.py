@@ -1,4 +1,4 @@
-"""Precompute frozen CLIP global and local evidence for the baseline COCO split.
+"""Precompute frozen CLIP global and local evidence for the benchmark SPML splits.
    用冻结的 CLIP ViT-B/16 分别计算原图的 global 相似度，以及五个固定裁剪中最大的 local 相似度。
    每个类别只用 train split 的分数计算均值和标准差，再把 train、val、test 的分数标准化、经过 sigmoid。分别保存 global/local 分量，并保存默认 0.5/0.5 融合结果供旧代码使用。
 """
@@ -32,7 +32,7 @@ PROMPT = 'a photo of a {class_name}'
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--dataset', default='coco')
+    p.add_argument('--dataset', choices=('pascal', 'coco', 'nuswide', 'cub'), default='coco')
     p.add_argument('--clip-model', default='ViT-B/16')
     p.add_argument('--clip-cache', default='/home/ubuntu2/.cache/clip')
     p.add_argument('--output', required=True)
@@ -45,8 +45,8 @@ def parse_args():
     p.add_argument('--num-workers', type=int, default=4,
                    help='Parallel workers for image decoding (0 disables multiprocessing)')
     args = p.parse_args()
-    if args.dataset != 'coco' or args.clip_model != 'ViT-B/16':
-        p.error('This cache requires COCO and OpenAI CLIP ViT-B/16')
+    if args.clip_model != 'ViT-B/16':
+        p.error('This cache requires OpenAI CLIP ViT-B/16')
     if args.clip_batch_size < 1 or not 0 < args.local_crop_ratio <= 1:
         p.error('clip batch size must be positive and local crop ratio must be in (0,1]')
     if not 0 <= args.lambda_global <= 1:
@@ -221,6 +221,9 @@ def main():
         raise RuntimeError('CUDA requested but unavailable')
     if args.preprocess_device == 'cuda' and not torch.cuda.is_available():
         raise RuntimeError('CUDA preprocessing requested but unavailable')
+    if args.dataset != 'coco':
+        from preproc.verify_spml_dataset import verify_dataset
+        verify_dataset(args.dataset, write_manifest=False)
     cache_file = Path(args.clip_cache) / 'ViT-B-16.pt'
     if not cache_file.is_file():
         raise FileNotFoundError(f'Frozen CLIP weights missing: {cache_file}')
@@ -232,10 +235,13 @@ def main():
     image_ids = split_image_ids(args.dataset)
     names = datasets.get_category_list({'dataset': args.dataset})
     if len(names) != datasets.get_metadata(args.dataset)['num_classes']:
-        raise ValueError('COCO category count mismatch')
+        raise ValueError(f'Dataset/category count mismatch for {args.dataset}')
+    prompt_template = 'a photo of a bird with {class_name}' if args.dataset == 'cub' else PROMPT
     image_root = datasets.get_metadata(args.dataset)['path_to_images']
     with torch.inference_mode():
-        tokens = clip.tokenize([PROMPT.format(class_name=name) for name in names]).to(args.device)
+        tokens = clip.tokenize([prompt_template.format(
+            class_name=datasets.normalize_category_name(args.dataset, name))
+            for name in names]).to(args.device)
         text_features = F.normalize(model.encode_text(tokens).float(), dim=-1)
         raw = {}
         for phase in ('train', 'val', 'test'):
@@ -265,7 +271,8 @@ def main():
                         test_image_ids=image_ids['test'], mu_global=mu_global,
                         std_global=std_global, mu_local=mu_local, std_local=std_local)
     metadata = dict(dataset=args.dataset, clip_model=args.clip_model,
-                    prompt_template=PROMPT, local_crop_ratio=args.local_crop_ratio,
+                    prompt_template=prompt_template, category_names=names,
+                    local_crop_ratio=args.local_crop_ratio,
                     num_local_crops=5, lambda_global=args.lambda_global, eps=EPS,
                     split_seed=SPLIT_SEED, ss_seed=SS_SEED, val_frac=VAL_FRAC,
                     ss_frac_train=SS_FRAC_TRAIN, ss_frac_val=SS_FRAC_VAL,

@@ -292,7 +292,40 @@ def get_category_list(P):
         return meta['category_list']
 
     elif P['dataset'] == 'nuswide':
-        pass # TODO
+        path = os.path.join('data', 'nuswide', 'Concepts81.txt')
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f'NUS-WIDE concept names missing: {path}; supply Concepts81.txt in original label-column order')
+        with open(path, encoding='utf-8-sig') as handle:
+            names = [line.strip() for line in handle if line.strip()]
+        assert len(names) == 81, f'Expected 81 NUS-WIDE concepts, got {len(names)}'
+        return names
     
     elif P['dataset'] == 'cub':
-        pass # TODO
+        path = os.path.join('data', 'cub', 'attributes.txt')
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f'CUB attribute names missing: {path}')
+        by_id = {}
+        with open(path, encoding='utf-8-sig') as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                attribute_id, name = line.strip().split(maxsplit=1)
+                attribute_id = int(attribute_id)
+                if attribute_id in by_id:
+                    raise ValueError(f'Duplicate CUB attribute id: {attribute_id}')
+                by_id[attribute_id] = name
+        assert len(by_id) == 312, f'Expected 312 CUB attributes, got {len(by_id)}'
+        if set(by_id) != set(range(1, 313)):
+            raise ValueError('CUB attribute ids must be exactly 1...312')
+        return [by_id[i] for i in range(1, 313)]
+
+
+def normalize_category_name(dataset, raw_name):
+    """Normalize text for CLIP only; never reorder or modify label columns."""
+    if dataset == 'cub':
+        import re
+        name = raw_name[4:] if raw_name.startswith('has_') else raw_name
+        return ' '.join(re.sub(r'[:_()]', ' ', name).split())
+    if dataset == 'nuswide':
+        return raw_name.replace('_', ' ')
+    return raw_name

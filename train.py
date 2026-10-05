@@ -30,6 +30,9 @@ def load_semantic_cache(P, dataset):
     for key, value in expected.items():
         if metadata.get(key) != value:
             raise ValueError(f'Semantic cache metadata mismatch for {key}: {metadata.get(key)!r} != {value!r}')
+    if P['dataset'] != 'coco':
+        if metadata.get('category_names') != datasets.get_category_list(P):
+            raise ValueError('Semantic cache category names/order mismatch for ' + P['dataset'])
     A = float(P.get('semantic_lambda_global', 0.5))
     if not 0.0 <= A <= 1.0:
         raise ValueError('semantic_lambda_global must be in [0,1]')
@@ -158,6 +161,9 @@ def run_train(P):
         f"cudnn_deterministic={torch.backends.cudnn.deterministic}, "
         f"cudnn_benchmark={torch.backends.cudnn.benchmark}"
     )
+    if P['dataset'] == 'nuswide':
+        from preproc.verify_spml_dataset import verify_dataset
+        verify_dataset('nuswide', write_manifest=False)
     dataset = datasets.get_data(P)
     semantic_q = load_semantic_cache(P, dataset) if P.get('semantic_adaptive_boostlu', False) else None
     if np.min(dataset['train'].label_matrix_obs) < 0:
@@ -181,6 +187,8 @@ def run_train(P):
         )
     
     model = models.ImageClassifier(P)
+    if P['dataset'] == 'cub':
+        model.set_cub_observed_positive_mask(dataset['train'].label_matrix_obs)
     
     feature_extractor_params = [param for param in list(model.feature_extractor.parameters()) if param.requires_grad]
     onebyone_conv_params = [param for param in list(model.onebyone_conv.parameters()) if param.requires_grad]
