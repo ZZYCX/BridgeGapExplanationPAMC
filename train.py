@@ -187,8 +187,6 @@ def run_train(P):
         )
     
     model = models.ImageClassifier(P)
-    if P['dataset'] == 'cub':
-        model.set_cub_observed_positive_mask(dataset['train'].label_matrix_obs)
     
     feature_extractor_params = [param for param in list(model.feature_extractor.parameters()) if param.requires_grad]
     onebyone_conv_params = [param for param in list(model.onebyone_conv.parameters()) if param.requires_grad]
